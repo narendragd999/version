@@ -35,7 +35,7 @@
           "data": [
             {
               "scheme": "brainsta",
-              "host": "game"
+              //"host": "game"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
