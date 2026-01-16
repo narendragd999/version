@@ -20,6 +20,8 @@ import * as Application from "expo-application";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
+import { checkOTAUpdateOnce } from "./checkOTAUpdate";
+import { useForceUpdate } from "./useForceUpdate";
 
 interface AuthContextType {
   user: User | null;
@@ -72,6 +74,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [deviceId, setDeviceId] = useState<string>("");
   const [role, setRole] = useState<string | null>(null);
   const sessionUnsubRef = useRef<null | (() => void)>(null);
+
+  // 🔴 BLOCK app if version is outdated (Firestore controlled)
+  useForceUpdate();
+
+  // 🟢 Auto OTA update (runs once, safe)
+  useEffect(() => {
+    checkOTAUpdateOnce();
+  }, []);
 
   // ✅ Initialize deviceId once
   useEffect(() => {

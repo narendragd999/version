@@ -18,6 +18,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../../shared/firebase";
 import { useAuth } from "../../shared/AuthProvider";
+import * as Linking from "expo-linking";
+import Constants from "expo-constants";
+
+
 
 export default function SettingsScreen() {
   const { role, loading } = useAuth();
@@ -27,6 +31,11 @@ export default function SettingsScreen() {
   const [githubToken, setGithubToken] = useState("");
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "other">("general");
+
+  const openPrivacyPolicy = () => {
+    Linking.openURL("https://narendragd999.github.io/Games/privacy.html");
+  };
+
 
   useEffect(() => {
     if (loading || !isAdmin) return;
@@ -64,7 +73,28 @@ export default function SettingsScreen() {
     }
   };
 
-  if (!isAdmin) {
+  const contactSupport = () => {
+    const email = "narendragd999@gmail.com";
+    const subject = encodeURIComponent("Brainsta App Support");
+    const body = encodeURIComponent(
+      "Please describe your issue below:\n\n" +
+      "------------------------------\n" +
+      "App: Brainsta\n" +
+      "Platform: " + Platform.OS + "\n"
+    );
+
+    const mailUrl = `mailto:${email}?subject=${subject}&body=${body}`;
+
+    Linking.openURL(mailUrl).catch(() => {
+      Alert.alert(
+        "Error",
+        "No email app found. Please contact us at " + email
+      );
+    });
+  };
+
+
+  if (!isAdmin && activeTab === "general") {
     return (
       <LinearGradient colors={["#6a11cb", "#fff"]} style={styles.container}>
         <Text style={styles.noAccess}>
@@ -162,11 +192,66 @@ export default function SettingsScreen() {
         {/* Other Tab */}
         {activeTab === "other" && (
           <ScrollView contentContainerStyle={{ padding: 10, paddingBottom: 40 }}>
-            <Text style={{ fontSize: 16, color: "#333" }}>
-              This is a dummy tab for future settings.
-            </Text>
+            
+            {/* Privacy Policy */}
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.85}
+              onPress={openPrivacyPolicy}
+            >
+              <View style={styles.actionIcon}>
+                <Ionicons name="shield-checkmark" size={22} color="#fff" />
+              </View>
+
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Privacy Policy</Text>
+                <Text style={styles.actionSubtitle}>
+                  How we protect and use your data
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#bbb" />
+            </TouchableOpacity>
+
+            {/* Contact Support */}
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.85}
+              onPress={contactSupport}
+            >
+              <View style={styles.actionIcon}>
+                <Ionicons name="mail" size={22} color="#fff" />
+              </View>
+
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Contact Support</Text>
+                <Text style={styles.actionSubtitle}>
+                  Need help? Get in touch with us
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#bbb" />
+            </TouchableOpacity>
+
+
+            {/* App Info */}
+            <View style={styles.infoCard}>
+              <View style={styles.infoIcon}>
+                <Ionicons name="information-circle" size={22} color="#fff" />
+              </View>
+
+              <View style={styles.infoTextWrap}>
+                <Text style={styles.infoTitle}>Brainsta</Text>
+                <Text style={styles.infoSubtitle}>
+                  Version {Constants.expoConfig?.version ?? "—"}
+                </Text>
+              </View>
+            </View>
+
+
           </ScrollView>
         )}
+
       </View>
 
       {/* Loader Modal */}
@@ -263,4 +348,99 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.6)",
   },
+  optionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#f8f8f8",
+    marginBottom: 10,
+  },
+  optionText: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+  },
+
+  infoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  infoIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#6a11cb",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  infoTextWrap: {
+    flex: 1,
+  },
+
+  infoTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+  },
+
+  infoSubtitle: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 2,
+  },
+
+  actionCard: {
+  flexDirection: "row",
+  alignItems: "center",
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  padding: 14,
+  marginBottom: 12,
+  shadowColor: "#000",
+  shadowOpacity: 0.06,
+  shadowRadius: 6,
+  elevation: 3,
+},
+
+actionIcon: {
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: "#6a11cb",
+  justifyContent: "center",
+  alignItems: "center",
+  marginRight: 12,
+},
+
+actionTextWrap: {
+  flex: 1,
+},
+
+actionTitle: {
+  fontSize: 15,
+  fontWeight: "600",
+  color: "#333",
+},
+
+actionSubtitle: {
+  fontSize: 12,
+  color: "#777",
+  marginTop: 2,
+},
+
 });

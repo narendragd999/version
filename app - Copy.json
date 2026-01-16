@@ -3,22 +3,11 @@
     "name": "Brainsta",
     "slug": "Brainsta",
     "version": "1.0.0",
-
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-
-    "updates": {
-      "enabled": true,
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
-    },
-
     "orientation": "portrait",
     "icon": "./assets/images/splash.png",
     "scheme": "brainsta",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
 
     "ios": {
       "supportsTablet": true,
@@ -26,7 +15,9 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleURLTypes": [
-          { "CFBundleURLSchemes": ["brainsta"] }
+          {
+            "CFBundleURLSchemes": ["brainsta"]
+          }
         ]
       }
     },
@@ -41,7 +32,12 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [{ "scheme": "brainsta" }],
+          "data": [
+            {
+              "scheme": "brainsta",
+              //"host": "game"
+            }
+          ],
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
@@ -55,7 +51,6 @@
 
     "plugins": [
       "expo-router",
-      "expo-dev-client",
       [
         "expo-splash-screen",
         {
@@ -68,7 +63,9 @@
       [
         "expo-build-properties",
         {
-          "android": { "usesCleartextTraffic": true }
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

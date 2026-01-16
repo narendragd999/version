@@ -21,6 +21,7 @@ import { useAuth } from "../../shared/AuthProvider";
 import { db } from "../../shared/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import Toast from "react-native-toast-message";
+import * as Linking from "expo-linking";
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
@@ -29,6 +30,10 @@ export default function ProfileScreen() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"profile" | "settings">("profile");
+  const openPrivacyPolicy = () => {
+    Linking.openURL("https://narendragd999.github.io/Games/privacy.html");
+  };
+
 
   useEffect(() => {
     if (!user) return;
@@ -76,6 +81,26 @@ export default function ProfileScreen() {
 
   const handleLogout = async () => {
     await logout();
+  };
+
+  const contactSupport = () => {
+    const email = "narendragd999@gmail.com";
+    const subject = encodeURIComponent("Brainsta App Support");
+    const body = encodeURIComponent(
+      "Please describe your issue below:\n\n" +
+      "------------------------------\n" +
+      "App: Brainsta\n" +
+      "Platform: " + Platform.OS + "\n"
+    );
+
+    const mailUrl = `mailto:${email}?subject=${subject}&body=${body}`;
+
+    Linking.openURL(mailUrl).catch(() => {
+      Alert.alert(
+        "Error",
+        "No email app found. Please contact us at " + email
+      );
+    });
   };
 
   if (!user) {
@@ -188,9 +213,53 @@ export default function ProfileScreen() {
         {/* Settings Tab */}
         {activeTab === "settings" && (
           <ScrollView contentContainerStyle={{ padding: 10, paddingBottom: 40 }}>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={handleLogout}>
-              <Text style={styles.btnText}>Log Out</Text>
+            {/* Privacy Policy */}
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.85}
+              onPress={openPrivacyPolicy}
+            >
+              <View style={styles.actionIcon}>
+                <Ionicons name="shield-checkmark" size={22} color="#fff" />
+              </View>
+
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Privacy Policy</Text>
+                <Text style={styles.actionSubtitle}>
+                  How we protect and use your data
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#bbb" />
             </TouchableOpacity>
+
+            {/* Contact Support */}
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.85}
+              onPress={contactSupport}
+            >
+              <View style={styles.actionIcon}>
+                <Ionicons name="mail" size={22} color="#fff" />
+              </View>
+
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Contact Support</Text>
+                <Text style={styles.actionSubtitle}>
+                  Need help? Get in touch with us
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#bbb" />
+            </TouchableOpacity>
+
+            
+            <View style={{ marginTop: 20 }}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={handleLogout}>
+                <Text style={styles.btnText}>Log Out</Text>
+              </TouchableOpacity>
+            </View>
+
           </ScrollView>
         )}
       </View>
@@ -313,4 +382,43 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 40,
   },
+  actionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+
+  actionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#6a11cb",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  actionTextWrap: {
+    flex: 1,
+  },
+
+  actionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+  },
+
+  actionSubtitle: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 2,
+  },
+
 });

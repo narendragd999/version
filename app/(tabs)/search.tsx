@@ -1,300 +1,224 @@
-// app/(tabs)/search.tsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   Keyboard,
-  NativeSyntheticEvent,
-  TextInputKeyPressEventData,
-  Animated,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { Ionicons } from "@expo/vector-icons";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../shared/firebase";
-import { useAuth } from "../../shared/AuthProvider";
+
 import GameReelsScreen from "./index";
 
-export default function SearchScreen() {
-  const { user } = useAuth();
-  const [queryText, setQueryText] = useState("");
-  const [games, setGames] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [filteredGames, setFilteredGames] = useState<any[]>([]);
-  const [filteredCategories, setFilteredCategories] = useState<any[]>([]);
-  const [selectedGames, setSelectedGames] = useState<any[]>([]);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState<number>(-1);
-  const [searchActive, setSearchActive] = useState(true);
-  const scrollRef = useRef<ScrollView>(null);
-  const searchHeight = useRef(new Animated.Value(50)).current;
+/* ================= TYPES ================= */
 
-  // Load all games & categories once
+interface Game {
+  id: string;
+  title?: string;
+}
+
+/* ================= DEBOUNCE HOOK ================= */
+
+function useDebounce<T>(value: T, delay = 400): T {
+  const [debounced, setDebounced] = useState(value);
+
   useEffect(() => {
-    const gq = query(collection(db, "games"), where("published", "==", true));
-    const uq = query(collection(db, "categories"));
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
 
-    const unsubGames = onSnapshot(gq, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setGames(data);
+  return debounced;
+}
+
+/* ================= MAIN ================= */
+
+export default function SearchScreen() {
+  const [allGames, setAllGames] = useState<Game[]>([]);
+  const [query, setQuery] = useState("");
+
+  const debouncedQuery = useDebounce(query, 400);
+
+  /* ================= FETCH GAMES ================= */
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "games"), snap => {
+      const list: Game[] = snap.docs.map(d => ({
+        id: d.id,
+        ...(d.data() as Omit<Game, "id">),
+      }));
+      setAllGames(list);
     });
 
-    const unsubCategories = onSnapshot(uq, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCategories(data);
-    });
-
-    return () => {
-      unsubGames();
-      unsubCategories();
-    };
+    return unsub;
   }, []);
 
-  // Filter suggestions as user types
-  useEffect(() => {
-    const text = queryText.toLowerCase();
-    if (!text) {
-      setFilteredGames([]);
-      setFilteredCategories([]);
-      setSelectedSuggestionIndex(-1);
-      return;
-    }
+  /* ================= FILTER ================= */
 
-    const gameSuggestions = games.filter((g) =>
-      g.title?.toLowerCase().includes(text)
+  const matchedGames = useMemo(() => {
+    if (!debouncedQuery.trim()) return [];
+
+    const q = debouncedQuery.toLowerCase();
+    return allGames.filter(g =>
+      g.title?.toLowerCase().includes(q)
     );
-    const categorySuggestions = categories.filter((c) =>
-      c.name?.toLowerCase().includes(text)
-    );
+  }, [allGames, debouncedQuery]);
 
-    setFilteredGames(gameSuggestions);
-    setFilteredCategories(categorySuggestions);
-    setSelectedSuggestionIndex(-1);
-  }, [queryText, games, categories]);
+  const resultIds = matchedGames.map(g => g.id);
+  const showEmpty =
+    debouncedQuery.trim().length > 0 && resultIds.length === 0;
 
-  // Select a game
-  const handleSelectGame = (game: any) => {
-    setSelectedGames([game]);
-    clearSuggestions();
-    setQueryText(game.title);
-    setSearchActive(false); // hide suggestions
-    Keyboard.dismiss();
-    animateSearchBox(false);
-  };
-
-  // Select a category
-  const handleSelectCategory = (categoryId: string) => {
-    const gamesInCategory = games.filter((g) => g.categoryId === categoryId);
-    setSelectedGames(gamesInCategory);
-    clearSuggestions();
-    const cat = categories.find((c) => c.id === categoryId);
-    setQueryText(cat?.name || "");
-    setSearchActive(false); // hide suggestions
-    Keyboard.dismiss();
-    animateSearchBox(false);
-  };
-
-  const clearSuggestions = () => {
-    setFilteredGames([]);
-    setFilteredCategories([]);
-    setSelectedSuggestionIndex(-1);
-  };
-
-  // Typing starts
-  const handleChangeText = (text: string) => {
-    setQueryText(text);
-    setSearchActive(true); // show suggestions
-    if (!searchActive) animateSearchBox(true); // expand if hidden
-  };
-
-  // Highlight matched text
-  const highlightText = (text: string) => {
-    const regex = new RegExp(`(${queryText})`, "gi");
-    const parts = text.split(regex);
-    return parts.map((part, i) => (
-      <Text
-        key={i}
-        style={part.toLowerCase() === queryText.toLowerCase() ? styles.highlight : {}}
-      >
-        {part}
-      </Text>
-    ));
-  };
-
-  const totalSuggestions = filteredGames.length + filteredCategories.length;
-
-  // Keyboard navigation
-  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    if (totalSuggestions === 0) return;
-    if (e.nativeEvent.key === "ArrowDown") {
-      let nextIndex = selectedSuggestionIndex + 1;
-      if (nextIndex >= totalSuggestions) nextIndex = 0;
-      setSelectedSuggestionIndex(nextIndex);
-      scrollToIndex(nextIndex);
-    }
-    if (e.nativeEvent.key === "ArrowUp") {
-      let prevIndex = selectedSuggestionIndex - 1;
-      if (prevIndex < 0) prevIndex = totalSuggestions - 1;
-      setSelectedSuggestionIndex(prevIndex);
-      scrollToIndex(prevIndex);
-    }
-    if (e.nativeEvent.key === "Enter" && selectedSuggestionIndex >= 0) {
-      if (selectedSuggestionIndex < filteredGames.length)
-        handleSelectGame(filteredGames[selectedSuggestionIndex]);
-      else
-        handleSelectCategory(
-          filteredCategories[selectedSuggestionIndex - filteredGames.length].id
-        );
-    }
-  };
-
-  const scrollToIndex = (index: number) => {
-    if (!scrollRef.current) return;
-    scrollRef.current.scrollTo({ y: index * 50, animated: true }); // 50 = item height
-  };
-
-  const animateSearchBox = (expand: boolean) => {
-    Animated.timing(searchHeight, {
-      toValue: expand ? 50 : 40,
-      duration: 200,
-      useNativeDriver: false,
-    }).start();
-  };
+  /* ================= RENDER ================= */
 
   return (
     <LinearGradient colors={["#6a11cb", "#fff"]} style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>🎮 Brainsta Games</Text>
-      </View>
-
-      <View style={styles.searchOverlay}>
-        <Animated.View style={[styles.searchBar, { height: searchHeight }]}>
+      {/* SEARCH HEADER */}
+      <View style={styles.searchHeader}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={20} color="#666" />
           <TextInput
-            placeholder={searchActive ? "Search games or categories" : ""}
-            value={queryText}
-            onChangeText={handleChangeText}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search games"
+            placeholderTextColor="#999"
             style={styles.input}
-            onKeyPress={handleKeyPress}
+            returnKeyType="search"
+            onSubmitEditing={Keyboard.dismiss}
           />
-          <Ionicons name="search" size={24} color="#6a11cb" />
-        </Animated.View>
+          {query.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setQuery("")}
+              hitSlop={10}
+            >
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color="#999"
+              />
+            </TouchableOpacity>
+          )}
+        </View>
 
-        {/* Suggestions only show while searching */}
-        {searchActive && (filteredGames.length > 0 || filteredCategories.length > 0) && (
-          <ScrollView ref={scrollRef} style={styles.suggestions}>
-            {filteredGames.map((g, idx) => (
-              <TouchableOpacity
-                key={g.id}
-                style={[
-                  styles.suggestionItem,
-                  idx === selectedSuggestionIndex && styles.suggestionActive,
-                ]}
-                onPress={() => handleSelectGame(g)}
-              >
-                <Text style={styles.suggestionText}>🎮 {highlightText(g.title)}</Text>
-              </TouchableOpacity>
-            ))}
-            {filteredCategories.map((c, idx) => (
-              <TouchableOpacity
-                key={c.id}
-                style={[
-                  styles.suggestionItem,
-                  idx + filteredGames.length === selectedSuggestionIndex &&
-                    styles.suggestionActive,
-                ]}
-                onPress={() => handleSelectCategory(c.id)}
-              >
-                <Text style={styles.suggestionText}>📂 {highlightText(c.name)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+        {debouncedQuery.length > 0 && (
+          <Text style={styles.resultText}>
+            {matchedGames.length} result
+            {matchedGames.length !== 1 ? "s" : ""} found
+          </Text>
         )}
       </View>
 
-      <View style={{ flex: 1, justifyContent: "center" }}>
-        {selectedGames.length > 0 ? (
+      {/* EMPTY STATE */}
+      {showEmpty ? (
+        <View style={styles.empty}>
+          <Ionicons
+            name="search-outline"
+            size={56}
+            color="#bbb"
+          />
+          <Text style={styles.emptyTitle}>
+            No games found
+          </Text>
+          <Text style={styles.emptyDesc}>
+            Try searching with a different keyword
+          </Text>
+
+          <TouchableOpacity
+            style={styles.clearBtn}
+            onPress={() => setQuery("")}
+          >
+            <Text style={styles.clearText}>
+              Clear search
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        /* RESULTS */
+        resultIds.length > 0 && (
           <GameReelsScreen
-            filterIds={selectedGames.map((g) => g.id)}
+            filterIds={resultIds}
             showHeaderFooter={false}
           />
-        ) : queryText ? (
-          <Text style={styles.noResults}>No results found</Text>
-        ) : null}
-      </View>
-
-      <LinearGradient colors={["#6a11cb", "#6a11cb"]} style={styles.footer}>
-        <Text style={styles.footerText}>© 2025 Brainsta</Text>
-      </LinearGradient>
+        )
+      )}
     </LinearGradient>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    justifyContent: "center",
-    alignItems: "center",
-    paddingTop: "10%",
+  container: {
+    flex: 1,
   },
-  headerText: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "bold",
+
+  /* HEADER */
+  searchHeader: {
+    paddingTop: "12%",
+    paddingBottom: 8,
   },
-  searchOverlay: {
-    position: "absolute",
-    top: "5%",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 50,
-  },
+
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    width: "90%",
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    marginHorizontal: 14,
+    paddingHorizontal: 14,
+    height: 48,
+    borderRadius: 24,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 4,
   },
-  input: { flex: 1, height: 40 },
-  suggestions: {
-    width: "90%",
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    marginTop: 4,
-    maxHeight: 250,
-    elevation: 4,
+
+  input: {
+    flex: 1,
+    marginHorizontal: 10,
+    fontSize: 15,
+    color: "#333",
   },
-  suggestionItem: {
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    height: 50,
-    justifyContent: "center",
+
+  resultText: {
+    marginLeft: 20,
+    marginTop: 6,
+    fontSize: 13,
+    color: "#555",
   },
-  suggestionText: { fontSize: 16 },
-  suggestionActive: { backgroundColor: "#e0e0ff" },
-  highlight: { fontWeight: "bold", color: "#6a11cb" },
-  noResults: {
-    textAlign: "center",
-    fontSize: 16,
-    color: "#666",
-    alignSelf: "center",
-  },
-  footer: {
-    height: 20,
+
+  /* EMPTY */
+  empty: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 32,
   },
-  footerText: { color: "#fff", fontSize: 14 },
+
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    marginTop: 14,
+  },
+
+  emptyDesc: {
+    fontSize: 14,
+    color: "#777",
+    textAlign: "center",
+    marginTop: 6,
+  },
+
+  clearBtn: {
+    marginTop: 18,
+    backgroundColor: "#6a11cb",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+
+  clearText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
 });
