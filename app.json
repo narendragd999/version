@@ -41,7 +41,13 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [{ "scheme": "brainsta" }],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "narendragd999.github.io",
+              "pathPrefix": "/Games/game"
+            }
+          ],
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ]

@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  Image,
 } from "react-native";
 import PagerView from "react-native-pager-view";
 import { WebView } from "react-native-webview";
@@ -216,14 +217,29 @@ export default function GameReelsScreen({
   const shareGame = () => {
     if (!currentGame) return;
 
-    const url = Linking.createURL("game", {
-      queryParams: { id: currentGame.id },
-    });
+    const url = `https://narendragd999.github.io/Games/game?id=${currentGame.id}`;
 
     Share.share({
       message: `🎮 Play this game\n${url}`,
     });
   };
+
+  useEffect(() => {
+    const handleUrl = ({ url }: { url: string }) => {
+      const { queryParams } = Linking.parse(url);
+      if (!queryParams?.id) return;
+
+      const index = games.findIndex(g => g.id === queryParams.id);
+      if (index >= 0) {
+        pagerRef.current?.setPage(index);
+        setPage(index);
+      }
+    };
+
+    const sub = Linking.addEventListener("url", handleUrl);
+    Linking.getInitialURL().then(url => url && handleUrl({ url }));
+    return () => sub.remove();
+  }, [games]);
 
 
   /* ================= FAVORITE ================= */
