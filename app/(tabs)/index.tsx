@@ -35,6 +35,8 @@ import {
 } from "firebase/firestore";
 import { db } from "../../shared/firebase";
 import { useAuth } from "../../shared/AuthProvider";
+import { useAppConfig } from "../../shared/useAppConfig";
+
 
 const { height } = Dimensions.get("window");
 
@@ -58,7 +60,9 @@ interface Comment {
   id: string;
   text: string;
   parentId: string | null;
+  userInitials?: string;
 }
+
 
 /* ================= UTILS ================= */
 const formatCount = (n = 0) =>
@@ -113,6 +117,7 @@ export default function GameReelsScreen({
 
   const likeScale = useSharedValue(1);
   const countScale = useSharedValue(1);
+  const { shareHostUrl } = useAppConfig();
 
   /* ---------- SAFE DERIVED LIST ---------- */
   const games = useMemo(() => {
@@ -215,15 +220,14 @@ export default function GameReelsScreen({
   
   /* ================= Create dynamic deep link ================= */
   const shareGame = () => {
-    if (!currentGame) return;
+    if (!currentGame || !shareHostUrl) return;
 
-    const url = `https://narendragd999.github.io/Games/game?id=${currentGame.id}`;
+    const url = `${shareHostUrl}/game?id=${currentGame.id}`;
 
     Share.share({
       message: `🎮 Play this game\n${url}`,
     });
   };
-
   useEffect(() => {
     const handleUrl = ({ url }: { url: string }) => {
       const { queryParams } = Linking.parse(url);
@@ -284,14 +288,29 @@ export default function GameReelsScreen({
     );
   }, [commentOpen, currentGame?.id]);
 
+  const getInitials = (name?: string, email?: string) => {
+    if (name) {
+      return name
+        .split(" ")
+        .map(n => n[0])
+        .join("")
+        .toUpperCase();
+    }
+    if (email) return email[0].toUpperCase();
+    return "U";
+  };
+
   const sendComment = async () => {
     if (!user || !currentGame || !text.trim()) return;
+
+    const initials = getInitials(user.displayName ?? undefined, user.email ?? undefined);
 
     await addDoc(
       collection(db, "games", currentGame.id, "comments"),
       {
         text: text.trim(),
         parentId: null,
+        userInitials: initials,   // ✅ store initials only
         createdAt: serverTimestamp(),
       }
     );
@@ -434,9 +453,14 @@ export default function GameReelsScreen({
           <Text style={styles.modalTitle}>Comments</Text>
           <ScrollView>
             {comments.map(c => (
-              <Text key={c.id} style={styles.comment}>
-                {c.text}
-              </Text>
+              <View key={c.id} style={styles.commentRow}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {c.userInitials ?? "U"}
+                  </Text>
+                </View>
+                <Text style={styles.commentText}>{c.text}</Text>
+              </View>
             ))}
           </ScrollView>
 
@@ -488,6 +512,34 @@ const styles = StyleSheet.create({
   modal: { flex: 1, padding: 16, backgroundColor: "#fff" },
   modalTitle: { fontSize: 18, fontWeight: "bold" },
   comment: { paddingVertical: 6 },
+  commentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 6,
+  },
+
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#6a11cb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  avatarText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 12,
+  },
+
+  commentText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#333",
+  },
+
 
   input: {
     borderWidth: 1,

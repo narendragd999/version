@@ -28,6 +28,7 @@ export default function SettingsScreen() {
   const isAdmin = role === "admin";
 
   const [baseUrl, setBaseUrl] = useState("");
+  const [shareHostUrl, setShareHostUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "other">("general");
@@ -46,6 +47,7 @@ export default function SettingsScreen() {
         if (snap.exists()) {
           const data = snap.data();
           setBaseUrl(data?.baseUrl || "");
+          setShareHostUrl(data?.shareHostUrl || "");
           setGithubToken(data?.githubToken || "");
         }
       } catch (err) {
@@ -61,7 +63,7 @@ export default function SettingsScreen() {
       setProcessing(true);
       await setDoc(
         doc(db, "settings", "appConfig"),
-        { baseUrl, githubToken },
+        { baseUrl, shareHostUrl, githubToken },
         { merge: true }
       );
       Alert.alert("✅ Success", "Settings updated!");
@@ -162,6 +164,18 @@ export default function SettingsScreen() {
                 onChangeText={setBaseUrl}
               />
             </View>
+
+            <View style={styles.inputBox}>
+              <Ionicons name="share-social" size={18} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter Share Host URL"
+                placeholderTextColor="#999"
+                value={shareHostUrl}
+                onChangeText={setShareHostUrl}
+              />
+            </View>
+
 
             <View style={styles.inputBox}>
               <Ionicons name="logo-github" size={18} color="#666" />
