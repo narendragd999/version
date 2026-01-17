@@ -50,6 +50,7 @@ interface Props {
 /* ================= TYPES ================= */
 interface Game {
   id: string;
+  title?: string;   // 👈 add this
   url: string;
   playTime?: number;
   likeCount?: number;
@@ -118,6 +119,9 @@ export default function GameReelsScreen({
   const likeScale = useSharedValue(1);
   const countScale = useSharedValue(1);
   const { shareHostUrl } = useAppConfig();
+  const [showTitle, setShowTitle] = useState(false);
+  const titleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
 
   /* ---------- SAFE DERIVED LIST ---------- */
   const games = useMemo(() => {
@@ -272,6 +276,26 @@ export default function GameReelsScreen({
     );
   };
 
+  useEffect(() => {
+    // show title when page changes
+    setShowTitle(true);
+
+    // clear old timer
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current);
+    }
+
+    // hide after 2 seconds
+    titleTimerRef.current = setTimeout(() => {
+      setShowTitle(false);
+    }, 2000);
+
+    return () => {
+      if (titleTimerRef.current) {
+        clearTimeout(titleTimerRef.current);
+      }
+    };
+  }, [page]);
 
   /* ================= COMMENTS ================= */
   useEffect(() => {
@@ -387,6 +411,14 @@ export default function GameReelsScreen({
           </View>
         ))}
       </PagerView>
+
+      {showTitle && currentGame?.title && (
+        <View style={styles.gameTitleWrap}>
+          <Text style={styles.gameTitleText} numberOfLines={1}>
+            {currentGame.title}
+          </Text>
+        </View>
+      )}
 
       {/* RIGHT ACTION STACK */}
       <View style={styles.overlay}>
@@ -556,4 +588,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   close: { marginTop: 10, color: "#6a11cb", textAlign: "center" },
+  gameTitleWrap: {
+    position: "absolute",
+    left: 12,
+    bottom: 40,          // stays above footer
+    backgroundColor: "rgba(0,0,0,0.35)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    maxWidth: "65%",
+  },
+
+  gameTitleText: {
+    color: "#fff",
+    fontSize: 8,        // 👈 very small
+    fontWeight: "500",
+  },
+
 });
