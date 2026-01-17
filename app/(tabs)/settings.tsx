@@ -1,4 +1,3 @@
-// app/(tabs)/settings.tsx
 import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
@@ -21,52 +20,70 @@ import { useAuth } from "../../shared/AuthProvider";
 import * as Linking from "expo-linking";
 import Constants from "expo-constants";
 
-
-
 export default function SettingsScreen() {
   const { role, loading } = useAuth();
   const isAdmin = role === "admin";
 
+  // -------------------- State --------------------
   const [baseUrl, setBaseUrl] = useState("");
   const [shareHostUrl, setShareHostUrl] = useState("");
+
+  const [githubOwner, setGithubOwner] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("main");
   const [githubToken, setGithubToken] = useState("");
+
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "other">("general");
 
-  const openPrivacyPolicy = () => {
-    Linking.openURL("https://narendragd999.github.io/Games/privacy.html");
-  };
-
-
+  // -------------------- Fetch settings (FIXED) --------------------
   useEffect(() => {
     if (loading || !isAdmin) return;
+
     const fetchSettings = async () => {
       try {
         const ref = doc(db, "settings", "appConfig");
         const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setBaseUrl(data?.baseUrl || "");
-          setShareHostUrl(data?.shareHostUrl || "");
-          setGithubToken(data?.githubToken || "");
-        }
+
+        if (!snap.exists()) return;
+
+        setBaseUrl(snap.get("baseUrl") || "");
+        setShareHostUrl(snap.get("shareHostUrl") || "");
+        setGithubOwner(snap.get("githubOwner") || "");
+        setGithubRepo(snap.get("githubRepo") || "");
+        setGithubBranch(snap.get("githubBranch") || "main");
+        setGithubToken(snap.get("githubToken") || "");
       } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch settings:", err);
         Alert.alert("Error", "Failed to fetch settings");
       }
     };
+
     fetchSettings();
   }, [loading, isAdmin]);
 
+  // -------------------- Save settings --------------------
   const saveSettings = async () => {
+    if (!baseUrl || !githubOwner || !githubRepo || !githubBranch || !githubToken) {
+      Alert.alert("Missing Fields", "All GitHub fields are required.");
+      return;
+    }
+
     try {
       setProcessing(true);
       await setDoc(
         doc(db, "settings", "appConfig"),
-        { baseUrl, shareHostUrl, githubToken },
+        {
+          baseUrl,
+          shareHostUrl,
+          githubOwner,
+          githubRepo,
+          githubBranch,
+          githubToken,
+        },
         { merge: true }
       );
-      Alert.alert("✅ Success", "Settings updated!");
+      Alert.alert("✅ Success", "Settings saved successfully!");
     } catch (err) {
       console.error(err);
       Alert.alert("❌ Error", "Failed to save settings");
@@ -75,209 +92,93 @@ export default function SettingsScreen() {
     }
   };
 
+  // -------------------- Helpers --------------------
+  const openPrivacyPolicy = () => {
+    Linking.openURL("https://narendragd999.github.io/Games/privacy.html");
+  };
+
   const contactSupport = () => {
     const email = "narendragd999@gmail.com";
     const subject = encodeURIComponent("Brainsta App Support");
     const body = encodeURIComponent(
-      "Please describe your issue below:\n\n" +
-      "------------------------------\n" +
-      "App: Brainsta\n" +
-      "Platform: " + Platform.OS + "\n"
+      `Please describe your issue:\n\nApp: Brainsta\nPlatform: ${Platform.OS}\n`
     );
-
-    const mailUrl = `mailto:${email}?subject=${subject}&body=${body}`;
-
-    Linking.openURL(mailUrl).catch(() => {
-      Alert.alert(
-        "Error",
-        "No email app found. Please contact us at " + email
-      );
-    });
+    Linking.openURL(`mailto:${email}?subject=${subject}&body=${body}`);
   };
-
 
   if (!isAdmin && activeTab === "general") {
     return (
       <LinearGradient colors={["#6a11cb", "#fff"]} style={styles.container}>
-        <Text style={styles.noAccess}>
-          ❌ You are not authorized to view this page.
-        </Text>
+        <Text style={styles.noAccess}>❌ You are not authorized.</Text>
       </LinearGradient>
     );
   }
 
+  // -------------------- UI --------------------
   return (
     <LinearGradient colors={["#6a11cb", "#fff"]} style={styles.container}>
       <View style={styles.card}>
         {/* Tabs */}
         <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === "general" && styles.tabActive]}
-            onPress={() => setActiveTab("general")}
-          >
-            <Ionicons
-              name="construct"
-              size={18}
-              color={activeTab === "general" ? "#fff" : "#333"}
-              style={{ marginRight: 6 }}
-            />
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "general" && styles.tabTextActive,
-              ]}
+          {["general", "other"].map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.tabBtn, activeTab === tab && styles.tabActive]}
+              onPress={() => setActiveTab(tab as any)}
             >
-              General
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === "other" && styles.tabActive]}
-            onPress={() => setActiveTab("other")}
-          >
-            <Ionicons
-              name="apps"
-              size={18}
-              color={activeTab === "other" ? "#fff" : "#333"}
-              style={{ marginRight: 6 }}
-            />
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "other" && styles.tabTextActive,
-              ]}
-            >
-              Other
-            </Text>
-          </TouchableOpacity>
+              <Ionicons
+                name={tab === "general" ? "construct" : "apps"}
+                size={18}
+                color={activeTab === tab ? "#fff" : "#333"}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                {tab === "general" ? "General" : "Other"}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* General Tab */}
+        {/* -------- GENERAL TAB -------- */}
         {activeTab === "general" && (
-          <ScrollView contentContainerStyle={{ padding: 10, paddingBottom: 40 }}>
-            <View style={styles.inputBox}>
-              <Ionicons name="link" size={18} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter Base URL"
-                placeholderTextColor="#999"
-                value={baseUrl}
-                onChangeText={setBaseUrl}
-              />
-            </View>
+          <ScrollView>
+            <Field icon="link" value={baseUrl} onChange={setBaseUrl} placeholder="Base URL (GitHub Pages)" />
+            <Field icon="share-social" value={shareHostUrl} onChange={setShareHostUrl} placeholder="Share Host URL" />
+            <Field icon="logo-github" value={githubOwner} onChange={setGithubOwner} placeholder="GitHub Owner" />
+            <Field icon="folder" value={githubRepo} onChange={setGithubRepo} placeholder="GitHub Repository" />
+            <Field icon="git-branch" value={githubBranch} onChange={setGithubBranch} placeholder="GitHub Branch" />
+            <Field icon="key" value={githubToken} onChange={setGithubToken} placeholder="GitHub Token" secure />
 
-            <View style={styles.inputBox}>
-              <Ionicons name="share-social" size={18} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter Share Host URL"
-                placeholderTextColor="#999"
-                value={shareHostUrl}
-                onChangeText={setShareHostUrl}
-              />
-            </View>
-
-
-            <View style={styles.inputBox}>
-              <Ionicons name="logo-github" size={18} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter Github Access Token"
-                placeholderTextColor="#999"
-                value={githubToken}
-                onChangeText={setGithubToken}
-                secureTextEntry
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[styles.secondaryBtn, processing && { opacity: 0.7 }]}
-              onPress={saveSettings}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.btnText}>💾 Save Settings</Text>
-              )}
+            <TouchableOpacity style={styles.secondaryBtn} onPress={saveSettings} disabled={processing}>
+              {processing ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>💾 Save Settings</Text>}
             </TouchableOpacity>
           </ScrollView>
         )}
 
-        {/* Other Tab */}
+        {/* -------- OTHER TAB -------- */}
         {activeTab === "other" && (
-          <ScrollView contentContainerStyle={{ padding: 10, paddingBottom: 40 }}>
-            
-            {/* Privacy Policy */}
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.85}
-              onPress={openPrivacyPolicy}
-            >
-              <View style={styles.actionIcon}>
-                <Ionicons name="shield-checkmark" size={22} color="#fff" />
-              </View>
+          <ScrollView>
+            <ActionCard icon="shield-checkmark" title="Privacy Policy" subtitle="How we use your data" onPress={openPrivacyPolicy} />
+            <ActionCard icon="mail" title="Contact Support" subtitle="Need help?" onPress={contactSupport} />
 
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>Privacy Policy</Text>
-                <Text style={styles.actionSubtitle}>
-                  How we protect and use your data
-                </Text>
-              </View>
-
-              <Ionicons name="chevron-forward" size={18} color="#bbb" />
-            </TouchableOpacity>
-
-            {/* Contact Support */}
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.85}
-              onPress={contactSupport}
-            >
-              <View style={styles.actionIcon}>
-                <Ionicons name="mail" size={22} color="#fff" />
-              </View>
-
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>Contact Support</Text>
-                <Text style={styles.actionSubtitle}>
-                  Need help? Get in touch with us
-                </Text>
-              </View>
-
-              <Ionicons name="chevron-forward" size={18} color="#bbb" />
-            </TouchableOpacity>
-
-
-            {/* App Info */}
             <View style={styles.infoCard}>
-              <View style={styles.infoIcon}>
-                <Ionicons name="information-circle" size={22} color="#fff" />
-              </View>
-
-              <View style={styles.infoTextWrap}>
+              <Ionicons name="information-circle" size={22} color="#fff" />
+              <View style={{ marginLeft: 12 }}>
                 <Text style={styles.infoTitle}>Brainsta</Text>
                 <Text style={styles.infoSubtitle}>
                   Version {Constants.expoConfig?.version ?? "—"}
                 </Text>
               </View>
             </View>
-
-
           </ScrollView>
         )}
-
       </View>
 
-      {/* Loader Modal */}
       {processing && (
         <Modal visible transparent animationType="fade">
           <View style={styles.loaderOverlay}>
             <ActivityIndicator size="large" color="#fff" />
-            <Text
-              style={{ marginTop: 12, color: "#fff", fontWeight: "bold" }}
-            >
-              Processing...
-            </Text>
+            <Text style={{ color: "#fff", marginTop: 10 }}>Processing...</Text>
           </View>
         </Modal>
       )}
@@ -285,176 +186,54 @@ export default function SettingsScreen() {
   );
 }
 
+/* -------------------- Components -------------------- */
+const Field = ({ icon, value, onChange, placeholder, secure = false }) => (
+  <View style={styles.inputBox}>
+    <Ionicons name={icon} size={18} color="#666" />
+    <TextInput
+      style={styles.input}
+      placeholder={placeholder}
+      placeholderTextColor="#999"
+      value={value}
+      onChangeText={onChange}
+      secureTextEntry={secure}
+    />
+  </View>
+);
+
+const ActionCard = ({ icon, title, subtitle, onPress }) => (
+  <TouchableOpacity style={styles.actionCard} onPress={onPress}>
+    <View style={styles.actionIcon}>
+      <Ionicons name={icon} size={22} color="#fff" />
+    </View>
+    <View style={{ flex: 1 }}>
+      <Text style={styles.actionTitle}>{title}</Text>
+      <Text style={styles.actionSubtitle}>{subtitle}</Text>
+    </View>
+    <Ionicons name="chevron-forward" size={18} color="#bbb" />
+  </TouchableOpacity>
+);
+
+/* -------------------- Styles -------------------- */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-    justifyContent: "center",
-  },
-  noAccess: {
-    color: "#fff",
-    fontSize: 16,
-    textAlign: "center",
-    marginTop: 40,
-    fontWeight: "600",
-  },
-  card: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    margin: 10,
-    elevation: 3,
-  },
-  tabRow: {
-    flexDirection: "row",
-    marginBottom: 15,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: "#eee",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { flex: 1, paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0 },
+  noAccess: { color: "#fff", textAlign: "center", marginTop: 40 },
+  card: { flex: 1, backgroundColor: "#fff", margin: 10, borderRadius: 12, padding: 16 },
+  tabRow: { flexDirection: "row", borderRadius: 8, overflow: "hidden", marginBottom: 12 },
+  tabBtn: { flex: 1, padding: 10, backgroundColor: "#eee", flexDirection: "row", justifyContent: "center" },
   tabActive: { backgroundColor: "#6a11cb" },
-  tabText: { fontSize: 14, fontWeight: "600", color: "#333" },
+  tabText: { fontWeight: "600", color: "#333" },
   tabTextActive: { color: "#fff" },
-  inputBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    marginBottom: 12,
-    width: "100%",
-  },
-  input: {
-    flex: 1,
-    padding: 12,
-    fontSize: 14,
-    color: "#333",
-  },
-  primaryBtn: {
-    backgroundColor: "#3498db",
-    padding: 14,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 10,
-    width: "100%",
-  },
-  secondaryBtn: {
-    backgroundColor: "#6a11cb",
-    padding: 14,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 12,
-    width: "100%",
-  },
-  btnText: { color: "#fff", fontWeight: "bold", fontSize: 14 },
-  loaderOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  optionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#f8f8f8",
-    marginBottom: 10,
-  },
-  optionText: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
-  },
-
-  infoCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  infoIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#6a11cb",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-
-  infoTextWrap: {
-    flex: 1,
-  },
-
-  infoTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
-  },
-
-  infoSubtitle: {
-    fontSize: 12,
-    color: "#777",
-    marginTop: 2,
-  },
-
-  actionCard: {
-  flexDirection: "row",
-  alignItems: "center",
-  backgroundColor: "#fff",
-  borderRadius: 12,
-  padding: 14,
-  marginBottom: 12,
-  shadowColor: "#000",
-  shadowOpacity: 0.06,
-  shadowRadius: 6,
-  elevation: 3,
-},
-
-actionIcon: {
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: "#6a11cb",
-  justifyContent: "center",
-  alignItems: "center",
-  marginRight: 12,
-},
-
-actionTextWrap: {
-  flex: 1,
-},
-
-actionTitle: {
-  fontSize: 15,
-  fontWeight: "600",
-  color: "#333",
-},
-
-actionSubtitle: {
-  fontSize: 12,
-  color: "#777",
-  marginTop: 2,
-},
-
+  inputBox: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#ddd", borderRadius: 10, paddingHorizontal: 10, marginBottom: 10 },
+  input: { flex: 1, padding: 12, fontSize: 14 },
+  secondaryBtn: { backgroundColor: "#6a11cb", padding: 14, borderRadius: 10, alignItems: "center", marginTop: 10 },
+  btnText: { color: "#fff", fontWeight: "bold" },
+  loaderOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.6)" },
+  actionCard: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, backgroundColor: "#fff", marginBottom: 12 },
+  actionIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#6a11cb", justifyContent: "center", alignItems: "center", marginRight: 12 },
+  actionTitle: { fontWeight: "600" },
+  actionSubtitle: { fontSize: 12, color: "#777" },
+  infoCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#6a11cb", padding: 14, borderRadius: 12 },
+  infoTitle: { color: "#fff", fontWeight: "600" },
+  infoSubtitle: { color: "#ddd", fontSize: 12 },
 });

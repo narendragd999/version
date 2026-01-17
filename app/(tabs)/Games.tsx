@@ -16,6 +16,9 @@ import {
   serverTimestamp,
   updateDoc,
   where,
+  limit,
+  startAfter,
+  QueryDocumentSnapshot,
 } from "firebase/firestore";
 import {
   Alert,
@@ -25,16 +28,17 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
   TextInput, 
   TouchableOpacity,
   View,
-  Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { useAuth } from "../../shared/AuthProvider";
 import { auth, db } from "../../shared/firebase";
+
+const GAMES_PER_PAGE = 10;
 
 export default function GamesScreen() {
   const { user, loading, role } = useAuth();
@@ -52,30 +56,114 @@ export default function GamesScreen() {
 
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [githubToken, setGithubToken] = useState<string | null>(null);
+  const [githubOwner, setGithubOwner] = useState<string | null>(null);
+  const [githubRepo, setGithubRepo] = useState<string | null>(null);
+  const [githubBranch, setGithubBranch] = useState<string | null>(null);
+
+  // Pagination states
+  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(false);
 
   // Category modal
   const [catModalVisible, setCatModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
+  
+  const githubReady = !!githubOwner && !!githubRepo && !!githubBranch && !!githubToken;
 
-  // -------------------- Firestore listeners --------------------
+  // -------------------- Initial Firestore load --------------------
   useEffect(() => {
-    if (loading || !user) return;
-    const q =
-      role === "admin"
-        ? query(collection(db, "games"), orderBy("createdAt", "desc"))
-        : query(
-            collection(db, "games"),
-            where("creatorId", "==", user.uid),
-            orderBy("createdAt", "desc")
-          );
-    const unsub = onSnapshot(q, (snap) => {
-      setGames(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return () => unsub();
-  }, [loading, user, role]);
+    if (loading) return;
 
+    let q;
+
+    if (role === "admin") {
+      // 👑 ADMIN: fetch ALL games (no orderBy to avoid dropping old records)
+      q = query(collection(db, "games"));
+    } else if (user) {
+      // 👤 USER: own + admin games
+      q = query(
+        collection(db, "games"),
+        where("creatorId", "in", [user.uid, "admin"])
+      );
+    } else {
+      return;
+    }
+
+    const unsub = onSnapshot(q, (snap) => {
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      // 🔁 SORT SAFELY (new first, old last)
+      list.sort((a, b) => {
+        const ta =
+          a.createdAt?.seconds ??
+          a.createdAt?.toMillis?.() ??
+          0;
+        const tb =
+          b.createdAt?.seconds ??
+          b.createdAt?.toMillis?.() ??
+          0;
+        return tb - ta;
+      });
+
+      setGames(list);
+    });
+
+    return () => unsub();
+  }, [loading, role, user?.uid]);
+
+
+  // -------------------- Load more games --------------------
+  const loadMoreGames = async () => {
+    if (!hasMore || loadingMore || !lastVisible) return;
+
+    setLoadingMore(true);
+    try {
+      let q;
+
+      if (role === "admin") {
+        q = query(
+          collection(db, "games"),
+          orderBy("createdAt", "desc"),
+          startAfter(lastVisible),
+          limit(GAMES_PER_PAGE)
+        );
+      } else if (user) {
+        q = query(
+          collection(db, "games"),
+          where("creatorId", "in", [user.uid, "admin"]),
+          orderBy("createdAt", "desc"),
+          startAfter(lastVisible),
+          limit(GAMES_PER_PAGE)
+        );
+      } else {
+        setLoadingMore(false);
+        return;
+      }
+
+      const snap = await getDocs(q);
+      const newGames = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      setGames(prev => [...prev, ...newGames]);
+      setLastVisible(snap.docs[snap.docs.length - 1] || null);
+      setHasMore(snap.docs.length === GAMES_PER_PAGE);
+    } catch (err) {
+      console.error("Error loading more games:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // -------------------- Categories listener --------------------
   useEffect(() => {
     const q = query(collection(db, "categories"), orderBy("createdAt", "asc"));
     const unsub = onSnapshot(q, (snap) => {
@@ -84,15 +172,22 @@ export default function GamesScreen() {
     return () => unsub();
   }, []);
 
+  // -------------------- Settings listener --------------------
   useEffect(() => {
     (async () => {
       try {
         const docRef = doc(db, "settings", "appConfig");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setBaseUrl(docSnap.data()?.baseUrl || null);
-          setGithubToken(docSnap.data()?.githubToken || null);
-        }
+        const snap = await getDoc(docRef);
+
+        if (!snap.exists()) return;
+
+        const cfg = snap.data();
+
+        setBaseUrl(cfg.baseUrl || null);
+        setGithubToken(cfg.githubToken || null);
+        setGithubOwner(cfg.githubOwner || null);
+        setGithubRepo(cfg.githubRepo || null);
+        setGithubBranch(cfg.githubBranch || "main");
       } catch (err) {
         console.error("Failed to fetch settings:", err);
       }
@@ -186,9 +281,15 @@ export default function GamesScreen() {
       const jszip = new JSZip();
       const zip = await jszip.loadAsync(zipData);
 
-      const OWNER = "narendragd999"; // adjust if necessary
-      const REPO = "Brainsta_Games";
-      const BRANCH = "main";
+      if (!githubReady) {
+        Alert.alert("Error", "GitHub settings not configured by admin");
+        setProcessing(false);
+        return;
+      }
+
+      const OWNER = githubOwner;
+      const REPO = githubRepo;
+      const BRANCH = githubBranch;
       const TOKEN = githubToken;
 
       for (const relativePath in zip.files) {
@@ -257,9 +358,15 @@ export default function GamesScreen() {
           onPress: async () => {
             setProcessing(true);
             try {
-              const OWNER = "narendragd999";
-              const REPO = "Brainsta_Games";
-              const BRANCH = "main";
+              if (!githubReady) {
+                Alert.alert("Error", "GitHub settings not configured by admin");
+                setProcessing(false);
+                return;
+              }
+
+              const OWNER = githubOwner;
+              const REPO = githubRepo;
+              const BRANCH = githubBranch;
               const TOKEN = githubToken;
 
               const fetchAllFiles = async (path: string): Promise<any[]> => {
@@ -364,7 +471,7 @@ export default function GamesScreen() {
     if (!catId || role !== 'admin') return;
     Alert.alert(
       'Delete Category',
-      'Deleting a category will NOT delete games. Existing games keep their categoryId — update manually if needed.',
+      'Deleting a category will NOT delete games. Existing games keep their categoryId – update manually if needed.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -394,6 +501,36 @@ export default function GamesScreen() {
       g.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (g.categoryId && categories.find(c => c.id === g.categoryId)?.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // -------------------- Footer component --------------------
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#6a11cb" />
+        <Text style={styles.footerText}>Loading more games...</Text>
+      </View>
+    );
+  };
+
+  const renderEmpty = () => {
+    if (initialLoading) {
+      return (
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color="#6a11cb" />
+          <Text style={styles.emptyText}>Loading games...</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="game-controller-outline" size={64} color="#ccc" />
+        <Text style={styles.emptyText}>
+          {searchQuery ? "No games found" : "No games yet"}
+        </Text>
+      </View>
+    );
+  };
 
   // -------------------- Render --------------------
   return (
@@ -456,7 +593,7 @@ export default function GamesScreen() {
       <FlatList
         data={filteredGames}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        contentContainerStyle={{ paddingBottom: 20, flexGrow: 1 }}
         renderItem={({ item }) => {
           const category = categories.find(c => c.id === item.categoryId);
           return (
@@ -486,7 +623,6 @@ export default function GamesScreen() {
                 <TouchableOpacity style={styles.previewBtn} onPress={() => setPreviewUrl(item.url)}>
                   <Ionicons name="eye" size={18} color="#fff" />
                 </TouchableOpacity>
-                
 
                 <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item.id, item.url)}>
                   <Ionicons name="trash" size={18} color="#fff" />
@@ -496,8 +632,11 @@ export default function GamesScreen() {
           );
         }}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        onEndReached={loadMoreGames}
+        onEndReachedThreshold={0.5}
       />
-
 
       {/* WebView Preview */}
       <Modal visible={!!previewUrl} animationType="slide" onRequestClose={() => setPreviewUrl(null)}>
@@ -511,7 +650,7 @@ export default function GamesScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* ----------------- Redesigned Category Modal ----------------- */}
+      {/* Category Modal */}
       <Modal visible={catModalVisible} animationType="slide" onRequestClose={() => setCatModalVisible(false)}>
         <SafeAreaView style={{ flex: 1, padding: 20, backgroundColor: "#f9f9f9" }}>
           <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 16 }}>Select or Manage Category</Text>
@@ -608,7 +747,8 @@ export default function GamesScreen() {
           justifyContent: 'center',
           alignItems: 'center'
         }}>
-          <Text style={{ color: '#fff', fontSize: 18 }}>Processing...</Text>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 18, marginTop: 12 }}>Processing...</Text>
         </View>
       )}
     </LinearGradient>
@@ -647,7 +787,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
   },
-
   gameCard: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -680,8 +819,28 @@ const styles = StyleSheet.create({
   },
   statusText: { color: "#fff", fontSize: 10, fontWeight: "500" },
   actionButtons: { flexDirection: "row", alignItems: "center", gap: 6 },
-  previewBtn: { backgroundColor: "#6c5ce7", padding: 8, borderRadius: 6 },
   publishBtn: { padding: 8, borderRadius: 6 },
-  deleteBtn: { backgroundColor: "#e74c3c", padding: 8, borderRadius: 6 },
-  closeBtn: { padding: 12, backgroundColor: "#6a11cb", alignItems: "center" }
+  closeBtn: { padding: 12, backgroundColor: "#6a11cb", alignItems: "center" },
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#666",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+  },
 });
