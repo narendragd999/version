@@ -19,9 +19,15 @@ import GameReelsScreen from "./index";
 interface Game {
   id: string;
   title?: string;
+  categoryId?: string;
 }
 
-/* ================= DEBOUNCE HOOK ================= */
+interface Category {
+  id: string;
+  name: string;
+}
+
+/* ================= DEBOUNCE ================= */
 
 function useDebounce<T>(value: T, delay = 400): T {
   const [debounced, setDebounced] = useState(value);
@@ -38,6 +44,7 @@ function useDebounce<T>(value: T, delay = 400): T {
 
 export default function SearchScreen() {
   const [allGames, setAllGames] = useState<Game[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [query, setQuery] = useState("");
 
   const debouncedQuery = useDebounce(query, 400);
@@ -46,26 +53,54 @@ export default function SearchScreen() {
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "games"), snap => {
-      const list: Game[] = snap.docs.map(d => ({
-        id: d.id,
-        ...(d.data() as Omit<Game, "id">),
-      }));
-      setAllGames(list);
+      setAllGames(
+        snap.docs.map(d => ({
+          id: d.id,
+          ...(d.data() as Omit<Game, "id">),
+        }))
+      );
     });
-
     return unsub;
   }, []);
 
-  /* ================= FILTER ================= */
+  /* ================= FETCH CATEGORIES ================= */
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "categories"), snap => {
+      setCategories(
+        snap.docs.map(d => ({
+          id: d.id,
+          ...(d.data() as Omit<Category, "id">),
+        }))
+      );
+    });
+    return unsub;
+  }, []);
+
+  /* ================= SEARCH LOGIC ================= */
 
   const matchedGames = useMemo(() => {
     if (!debouncedQuery.trim()) return [];
 
     const q = debouncedQuery.toLowerCase();
-    return allGames.filter(g =>
-      g.title?.toLowerCase().includes(q)
-    );
-  }, [allGames, debouncedQuery]);
+
+    // 1️⃣ find matching categories
+    const matchedCategoryIds = categories
+      .filter(c => c.name.toLowerCase().includes(q))
+      .map(c => c.id);
+
+    // 2️⃣ match games by title OR categoryId
+    return allGames.filter(g => {
+      const titleMatch =
+        g.title?.toLowerCase().includes(q) ?? false;
+
+      const categoryMatch =
+        g.categoryId &&
+        matchedCategoryIds.includes(g.categoryId);
+
+      return titleMatch || categoryMatch;
+    });
+  }, [allGames, categories, debouncedQuery]);
 
   const resultIds = matchedGames.map(g => g.id);
   const showEmpty =
@@ -75,29 +110,24 @@ export default function SearchScreen() {
 
   return (
     <LinearGradient colors={["#6a11cb", "#fff"]} style={styles.container}>
-      {/* SEARCH HEADER */}
+      {/* SEARCH BAR */}
       <View style={styles.searchHeader}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color="#666" />
+
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search games"
+            placeholder="Search games or categories"
             placeholderTextColor="#999"
             style={styles.input}
             returnKeyType="search"
             onSubmitEditing={Keyboard.dismiss}
           />
+
           {query.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setQuery("")}
-              hitSlop={10}
-            >
-              <Ionicons
-                name="close-circle"
-                size={20}
-                color="#999"
-              />
+            <TouchableOpacity onPress={() => setQuery("")} hitSlop={10}>
+              <Ionicons name="close-circle" size={20} color="#999" />
             </TouchableOpacity>
           )}
         </View>
@@ -113,31 +143,23 @@ export default function SearchScreen() {
       {/* EMPTY STATE */}
       {showEmpty ? (
         <View style={styles.empty}>
-          <Ionicons
-            name="search-outline"
-            size={56}
-            color="#bbb"
-          />
-          <Text style={styles.emptyTitle}>
-            No games found
-          </Text>
+          <Ionicons name="search-outline" size={56} color="#bbb" />
+          <Text style={styles.emptyTitle}>No games found</Text>
           <Text style={styles.emptyDesc}>
-            Try searching with a different keyword
+            Try a different game name or category
           </Text>
 
           <TouchableOpacity
             style={styles.clearBtn}
             onPress={() => setQuery("")}
           >
-            <Text style={styles.clearText}>
-              Clear search
-            </Text>
+            <Text style={styles.clearText}>Clear search</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        /* RESULTS */
         resultIds.length > 0 && (
           <GameReelsScreen
+            key={resultIds.join("_")}   // 🔥 REQUIRED (Pager reset)
             filterIds={resultIds}
             showHeaderFooter={false}
           />
@@ -150,11 +172,8 @@ export default function SearchScreen() {
 /* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
 
-  /* HEADER */
   searchHeader: {
     paddingTop: "12%",
     paddingBottom: 8,
@@ -188,7 +207,6 @@ const styles = StyleSheet.create({
     color: "#555",
   },
 
-  /* EMPTY */
   empty: {
     flex: 1,
     justifyContent: "center",

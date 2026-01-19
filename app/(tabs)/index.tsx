@@ -10,7 +10,6 @@ import {
   Modal,
   TextInput,
   ScrollView,
-  Image,
 } from "react-native";
 import PagerView from "react-native-pager-view";
 import { WebView } from "react-native-webview";
@@ -37,24 +36,23 @@ import { db } from "../../shared/firebase";
 import { useAuth } from "../../shared/AuthProvider";
 import { useAppConfig } from "../../shared/useAppConfig";
 
-
 const { height } = Dimensions.get("window");
 
-/* ================= PROPS ================= */
+/* ================= TYPES ================= */
 interface Props {
   favoritesOnly?: boolean;
-  filterIds?: string[];          // for Search page
+  filterIds?: string[];
   showHeaderFooter?: boolean;
 }
 
-/* ================= TYPES ================= */
 interface Game {
   id: string;
-  title?: string;   // 👈 add this
+  title?: string;
   url: string;
   playTime?: number;
   likeCount?: number;
   commentCount?: number;
+  createdAt?: any;
 }
 
 interface Comment {
@@ -63,7 +61,6 @@ interface Comment {
   parentId: string | null;
   userInitials?: string;
 }
-
 
 /* ================= UTILS ================= */
 const formatCount = (n = 0) =>
@@ -92,7 +89,7 @@ const ReelPage = ({
     <View style={{ flex: 1, backgroundColor: "#000" }} />
   );
 
-/* ================= MAIN SCREEN ================= */
+/* ================= MAIN ================= */
 export default function GameReelsScreen({
   favoritesOnly = false,
   filterIds,
@@ -100,8 +97,8 @@ export default function GameReelsScreen({
 }: Props) {
   const pagerRef = useRef<PagerView>(null);
   const { user } = useAuth();
+  const { shareHostUrl } = useAppConfig();
 
-  /* ---------- CORE STATE ---------- */
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -118,12 +115,11 @@ export default function GameReelsScreen({
 
   const likeScale = useSharedValue(1);
   const countScale = useSharedValue(1);
-  const { shareHostUrl } = useAppConfig();
+
   const [showTitle, setShowTitle] = useState(false);
   const titleTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
 
-  /* ---------- SAFE DERIVED LIST ---------- */
+  /* ================= SORT: NEW GAMES FIRST ================= */
   const games = useMemo(() => {
     let list = [...allGames];
 
@@ -131,20 +127,19 @@ export default function GameReelsScreen({
       list = list.filter(g => favorites.includes(g.id));
     }
 
-    if (filterIds && filterIds.length > 0) {
+    if (filterIds?.length) {
       list = list.filter(g => filterIds.includes(g.id));
     }
 
-    list.sort((a, b) => (b.playTime || 0) - (a.playTime || 0));
+    // 🔥 NEWEST FIRST (fallback safe)
+    list.sort((a, b) => {
+      const ta = a.createdAt?.seconds ?? 0;
+      const tb = b.createdAt?.seconds ?? 0;
+      return tb - ta;
+    });
+
     return list;
   }, [allGames, favoritesOnly, favorites, filterIds]);
-
-  useEffect(() => {
-    if (page >= games.length && games.length > 0) {
-      setPage(games.length - 1);
-    }
-  }, [games.length]);
-
 
   const currentGame = games[page] ?? null;
 
@@ -158,7 +153,7 @@ export default function GameReelsScreen({
     });
   }, [user]);
 
-  /* ================= FETCH ALL GAMES ================= */
+  /* ================= FETCH GAMES ================= */
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "games"), snap => {
       const list: Game[] = snap.docs.map(d => ({
@@ -220,55 +215,21 @@ export default function GameReelsScreen({
     transform: [{ scale: countScale.value }],
   }));
 
-
-  
-  /* ================= Create dynamic deep link ================= */
-  const shareGame = () => {
-    if (!currentGame || !shareHostUrl) return;
-
-    const url = `${shareHostUrl}/game?id=${currentGame.id}`;
-
-    Share.share({
-      message: `🎮 Play this game\n${url}`,
-    });
-  };
-  useEffect(() => {
-    const handleUrl = ({ url }: { url: string }) => {
-      const { queryParams } = Linking.parse(url);
-      if (!queryParams?.id) return;
-
-      const index = games.findIndex(g => g.id === queryParams.id);
-      if (index >= 0) {
-        pagerRef.current?.setPage(index);
-        setPage(index);
-      }
-    };
-
-    const sub = Linking.addEventListener("url", handleUrl);
-    Linking.getInitialURL().then(url => url && handleUrl({ url }));
-    return () => sub.remove();
-  }, [games]);
-
-
   /* ================= FAVORITE ================= */
   const toggleFavorite = async () => {
     if (!user || !currentGame) return;
 
     const removing = favorites.includes(currentGame.id);
-
     const updated = removing
       ? favorites.filter(i => i !== currentGame.id)
       : [...favorites, currentGame.id];
 
-    // 1️⃣ Update UI immediately
     setFavorites(updated);
 
-    // 2️⃣ If in favorites screen & removing current item → move page safely
     if (favoritesOnly && removing) {
       setPage(p => Math.max(0, p - 1));
     }
 
-    // 3️⃣ Persist to Firestore
     await setDoc(
       doc(db, "userPreferences", user.uid),
       { favorites: updated },
@@ -276,25 +237,20 @@ export default function GameReelsScreen({
     );
   };
 
+  /* ================= SHARE ================= */
+  const shareGame = () => {
+    if (!currentGame || !shareHostUrl) return;
+    Share.share({
+      message: `🎮 Play this game\n${shareHostUrl}/game?id=${currentGame.id}`,
+    });
+  };
+
+  /* ================= TITLE AUTO HIDE ================= */
   useEffect(() => {
-    // show title when page changes
     setShowTitle(true);
-
-    // clear old timer
-    if (titleTimerRef.current) {
-      clearTimeout(titleTimerRef.current);
-    }
-
-    // hide after 2 seconds
-    titleTimerRef.current = setTimeout(() => {
-      setShowTitle(false);
-    }, 2000);
-
-    return () => {
-      if (titleTimerRef.current) {
-        clearTimeout(titleTimerRef.current);
-      }
-    };
+    if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+    titleTimerRef.current = setTimeout(() => setShowTitle(false), 2000);
+    return () => titleTimerRef.current && clearTimeout(titleTimerRef.current);
   }, [page]);
 
   /* ================= COMMENTS ================= */
@@ -312,32 +268,19 @@ export default function GameReelsScreen({
     );
   }, [commentOpen, currentGame?.id]);
 
-  const getInitials = (name?: string, email?: string) => {
-    if (name) {
-      return name
-        .split(" ")
-        .map(n => n[0])
-        .join("")
-        .toUpperCase();
-    }
-    if (email) return email[0].toUpperCase();
-    return "U";
-  };
-
   const sendComment = async () => {
     if (!user || !currentGame || !text.trim()) return;
+    const initials =
+      user.displayName?.[0]?.toUpperCase() ??
+      user.email?.[0]?.toUpperCase() ??
+      "U";
 
-    const initials = getInitials(user.displayName ?? undefined, user.email ?? undefined);
-
-    await addDoc(
-      collection(db, "games", currentGame.id, "comments"),
-      {
-        text: text.trim(),
-        parentId: null,
-        userInitials: initials,   // ✅ store initials only
-        createdAt: serverTimestamp(),
-      }
-    );
+    await addDoc(collection(db, "games", currentGame.id, "comments"), {
+      text: text.trim(),
+      parentId: null,
+      userInitials: initials,
+      createdAt: serverTimestamp(),
+    });
 
     await updateDoc(doc(db, "games", currentGame.id), {
       commentCount: increment(1),
@@ -345,23 +288,6 @@ export default function GameReelsScreen({
 
     setText("");
   };
-
-  /* ================= DEEP LINK ================= */
-  useEffect(() => {
-    const handler = ({ url }: any) => {
-      const { queryParams } = Linking.parse(url);
-      if (!queryParams?.id) return;
-      const index = games.findIndex(g => g.id === queryParams.id);
-      if (index >= 0) {
-        pagerRef.current?.setPage(index);
-        setPage(index);
-      }
-    };
-
-    const sub = Linking.addEventListener("url", handler);
-    Linking.getInitialURL().then(url => url && handler({ url }));
-    return () => sub.remove();
-  }, [games]);
 
   /* ================= LOADING ================= */
   if (loading) {
@@ -405,7 +331,7 @@ export default function GameReelsScreen({
           <View key={g.id} style={{ flex: 1 }}>
             <ReelPage
               url={g.url}
-              mount={i === page || i === page + 1 || page === 0}
+              mount={Math.abs(i - page) <= 1}
               onVisible={startTimer}
             />
           </View>
@@ -420,13 +346,13 @@ export default function GameReelsScreen({
         </View>
       )}
 
-      {/* RIGHT ACTION STACK */}
+      {/* RIGHT ACTIONS */}
       <View style={styles.overlay}>
-        <TouchableOpacity style={styles.iconWrap} onPress={() => setPaused(p => !p)}>
+        <TouchableOpacity onPress={() => setPaused(p => !p)}   style={styles.iconWrap}>
           <Ionicons name={paused ? "play" : "pause"} size={28} color="#6a11cb" />
         </TouchableOpacity>
 
-        <Animated.View style={[styles.iconWrap, likeAnim]}>
+        <Animated.View style={likeAnim}  style={styles.iconWrap}>
           <TouchableOpacity onPress={handleLike}>
             <Ionicons
               name={liked.includes(currentGame.id) ? "heart" : "heart-outline"}
@@ -439,57 +365,36 @@ export default function GameReelsScreen({
           </Animated.Text>
         </Animated.View>
 
-        <TouchableOpacity style={styles.iconWrap} onPress={toggleFavorite}>
+        <TouchableOpacity onPress={toggleFavorite} style={styles.iconWrap}>
           <Ionicons
-            name={
-              favorites.includes(currentGame.id)
-                ? "bookmark"
-                : "bookmark-outline"
-            }
+            name={favorites.includes(currentGame.id) ? "bookmark" : "bookmark-outline"}
             size={26}
             color="#6a11cb"
           />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.iconWrap}
-          onPress={() => setCommentOpen(true)}
-        >
+        <TouchableOpacity onPress={() => setCommentOpen(true)}  style={styles.iconWrap}>
           <Ionicons name="chatbubble-outline" size={26} color="#6a11cb" />
           <Text style={styles.count}>
             {formatCount(currentGame.commentCount)}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.iconWrap} onPress={shareGame}>
-          <Ionicons
-            name="share-social-outline"
-            size={26}
-            color="#6a11cb"
-          />
-        </TouchableOpacity> 
-
+        <TouchableOpacity onPress={shareGame} style={styles.iconWrap}>
+          <Ionicons name="share-social-outline" size={26} color="#6a11cb" />
+        </TouchableOpacity>
       </View>
-
-      {showHeaderFooter && (
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            © {new Date().getFullYear()} Brainsta
-          </Text>
-        </View>
-      )}
 
       {/* COMMENTS MODAL */}
       <Modal visible={commentOpen} animationType="slide">
         <View style={styles.modal}>
           <Text style={styles.modalTitle}>Comments</Text>
+
           <ScrollView>
             {comments.map(c => (
               <View key={c.id} style={styles.commentRow}>
                 <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {c.userInitials ?? "U"}
-                  </Text>
+                  <Text style={styles.avatarText}>{c.userInitials}</Text>
                 </View>
                 <Text style={styles.commentText}>{c.text}</Text>
               </View>
@@ -524,26 +429,36 @@ const styles = StyleSheet.create({
   header: { paddingTop: "10%", alignItems: "center" },
   headerText: { color: "#fff", fontSize: 20, fontWeight: "bold" },
 
-  footer: { height: 20, alignItems: "center", justifyContent: "center" },
-  footerText: { color: "#fff", fontSize: 14 },
-
   overlay: {
     position: "absolute",
-    right: 10,
-    top: height * 0.25,
+    right: 12,
+    top: "50%",
+    transform: [{ translateY: -140 }], // 👈 controls vertical centering
     alignItems: "center",
   },
 
   iconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
-    marginVertical: 10,
+    justifyContent: "center",
+    marginVertical: 6,
   },
 
-  count: { fontSize: 12, color: "#333", marginTop: 2 },
+
+count: {
+    fontSize: 11,
+    color: "#333",
+    marginTop: 2,
+    textAlign: "center",
+    minWidth: 30,
+  },
+
 
   modal: { flex: 1, padding: 16, backgroundColor: "#fff" },
   modalTitle: { fontSize: 18, fontWeight: "bold" },
-  comment: { paddingVertical: 6 },
+
   commentRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -560,18 +475,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
 
-  avatarText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
-  },
-
-  commentText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-  },
-
+  avatarText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
+  commentText: { flex: 1, fontSize: 14, color: "#333" },
 
   input: {
     borderWidth: 1,
@@ -580,6 +485,7 @@ const styles = StyleSheet.create({
     padding: 10,
     marginTop: 10,
   },
+
   send: {
     backgroundColor: "#6a11cb",
     padding: 12,
@@ -587,11 +493,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignItems: "center",
   },
+
   close: { marginTop: 10, color: "#6a11cb", textAlign: "center" },
+
   gameTitleWrap: {
     position: "absolute",
     left: 12,
-    bottom: 40,          // stays above footer
+    bottom: 40,
     backgroundColor: "rgba(0,0,0,0.35)",
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -599,10 +507,5 @@ const styles = StyleSheet.create({
     maxWidth: "65%",
   },
 
-  gameTitleText: {
-    color: "#fff",
-    fontSize: 8,        // 👈 very small
-    fontWeight: "500",
-  },
-
+  gameTitleText: { color: "#fff", fontSize: 10 },
 });
