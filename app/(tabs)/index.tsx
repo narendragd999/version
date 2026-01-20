@@ -118,6 +118,8 @@ export default function GameReelsScreen({
 
   const [showTitle, setShowTitle] = useState(false);
   const titleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const navOpacity = useSharedValue(0);
+  let navTimer: NodeJS.Timeout | null = null;
 
   /* ================= SORT: NEW GAMES FIRST ================= */
   const games = useMemo(() => {
@@ -289,6 +291,52 @@ export default function GameReelsScreen({
     setText("");
   };
 
+  /* ================= NAV HELPERS ================= */
+  const goToTop = () => {
+    if (!pagerRef.current) return;
+    stopTimer();
+    setPage(0);
+    pagerRef.current.setPageWithoutAnimation(0);
+  };
+
+  const goToBottom = () => {
+    if (!pagerRef.current || games.length === 0) return;
+    stopTimer();
+    const last = games.length - 1;
+    setPage(last);
+    pagerRef.current.setPageWithoutAnimation(last);
+  };
+
+  /* ================= REFRESH / REINDEX ================= */
+  const refreshReindex = () => {
+    if (!pagerRef.current) return;
+
+    stopTimer();
+
+    // force re-sort + reset index
+    setAllGames(prev => [...prev]); // triggers useMemo sort again
+
+    setPage(0);
+    pagerRef.current.setPageWithoutAnimation(0);
+  };
+
+  const showNavButtons = () => {
+    navOpacity.value = withSpring(1);
+
+    if (navTimer) clearTimeout(navTimer);
+    navTimer = setTimeout(() => {
+      navOpacity.value = withSpring(0);
+    }, 1200); // auto-hide delay
+  };
+
+  const navAnimStyle = useAnimatedStyle(() => ({
+    opacity: navOpacity.value,
+    transform: [
+      { scale: navOpacity.value === 0 ? 0.9 : 1 },
+    ],
+  }));
+
+
   /* ================= LOADING ================= */
   if (loading) {
     return (
@@ -325,6 +373,7 @@ export default function GameReelsScreen({
         onPageSelected={e => {
           stopTimer();
           setPage(e.nativeEvent.position);
+          showNavButtons(); // 👈 fade-in on scroll
         }}
       >
         {games.map((g, i) => (
@@ -348,6 +397,11 @@ export default function GameReelsScreen({
 
       {/* RIGHT ACTIONS */}
       <View style={styles.overlay}>
+        <TouchableOpacity onPress={refreshReindex} style={styles.iconWrap}>
+          <Ionicons name="refresh" size={22} color="#6a11cb" />
+        </TouchableOpacity>
+
+
         <TouchableOpacity onPress={() => setPaused(p => !p)}   style={styles.iconWrap}>
           <Ionicons name={paused ? "play" : "pause"} size={28} color="#6a11cb" />
         </TouchableOpacity>
@@ -417,6 +471,21 @@ export default function GameReelsScreen({
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* BOTTOM NAVIGATION */}
+      <Animated.View style={[styles.goTopWrap, navAnimStyle]}>
+        <TouchableOpacity style={styles.goTop} onPress={goToTop}>
+          <Ionicons name="arrow-up" size={18} color="#fff" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <Animated.View style={[styles.goBottomWrap, navAnimStyle]}>
+        <TouchableOpacity style={styles.goBottom} onPress={goToBottom}>
+          <Ionicons name="arrow-down" size={18} color="#fff" />
+        </TouchableOpacity>
+      </Animated.View>
+
+
     </LinearGradient>
   );
 }
@@ -508,4 +577,43 @@ count: {
   },
 
   gameTitleText: { color: "#fff", fontSize: 10 },
+
+  goTop: {
+    position: "absolute",
+    bottom: 16,
+    left: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#6a11cb",
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.85,
+  },
+
+  goBottom: {
+    position: "absolute",
+    bottom: 16,
+    right: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#6a11cb",
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.85,
+  },
+  goTopWrap: {
+    position: "absolute",
+    bottom: 16,
+    left: 14,
+  },
+
+  goBottomWrap: {
+    position: "absolute",
+    bottom: 16,
+    right: 14,
+  },
+
+
 });

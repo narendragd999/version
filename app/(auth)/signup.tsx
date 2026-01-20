@@ -33,9 +33,11 @@ export default function SignUpScreen() {
       await signUp(email.trim(), password);
 
       Toast.show({
-        type: "success",
-        text1: "Verify your email",
-        text2: "Check your inbox for a verification link",
+        type: "info",
+        text1: "Email verification required",
+        text2: "Open your email inbox and click the verification link before logging in.",
+        visibilityTime: 10000,
+        position: "top",
       });
 
       // redirect user to login after signup
