@@ -35,6 +35,7 @@ import {
 import { db } from "../../shared/firebase";
 import { useAuth } from "../../shared/AuthProvider";
 import { useAppConfig } from "../../shared/useAppConfig";
+import { query, orderBy } from "firebase/firestore";
 
 const { height } = Dimensions.get("window");
 
@@ -109,6 +110,7 @@ export default function GameReelsScreen({
 
   const [commentOpen, setCommentOpen] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
+  const commentScrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
 
   const playStartRef = useRef<number | null>(null);
@@ -291,6 +293,34 @@ export default function GameReelsScreen({
     setText("");
   };
 
+  useEffect(() => {
+    if (!commentOpen || !currentGame) return;
+
+    return onSnapshot(
+      query(
+        collection(db, "games", currentGame.id, "comments"),
+        orderBy("createdAt", "asc") // 👈 REQUIRED
+      ),
+      snap =>
+        setComments(
+          snap.docs.map(d => ({
+            id: d.id,
+            ...(d.data() as Omit<Comment, "id">),
+          }))
+        )
+    );
+  }, [commentOpen, currentGame?.id]);
+
+  const getInitials = (name?: string) => {
+    if (!name) return "U";
+    const parts = name.trim().split(" ");
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (
+      parts[0][0].toUpperCase() +
+      parts[parts.length - 1][0].toUpperCase()
+    );
+  };
+
   /* ================= NAV HELPERS ================= */
   const goToTop = () => {
     if (!pagerRef.current) return;
@@ -444,16 +474,74 @@ export default function GameReelsScreen({
         <View style={styles.modal}>
           <Text style={styles.modalTitle}>Comments</Text>
 
-          <ScrollView>
-            {comments.map(c => (
-              <View key={c.id} style={styles.commentRow}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{c.userInitials}</Text>
+          <ScrollView
+            ref={commentScrollRef}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {comments.map((c, index) => {
+              const myInitials = getInitials(
+                user?.displayName || user?.email
+              );
+
+              const isMe = c.userInitials === myInitials;
+
+              const prev = comments[index - 1];
+              const showInitial =
+                !prev || prev.userInitials !== c.userInitials;
+
+              return (
+                <View
+                  key={c.id}
+                  style={[
+                    styles.commentRow,
+                    isMe && styles.myAlign,
+                    !showInitial && styles.attachedRow,
+                  ]}
+                >
+                  {/* INITIALS BADGE (ONLY ON FIRST COMMENT OF BLOCK) */}
+                  {showInitial && (
+                    <View
+                      style={[
+                        styles.initialBadge,
+                        isMe && styles.myInitialBadge,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.initialText,
+                          isMe && { color: "#fff" },
+                        ]}
+                      >
+                        {c.userInitials}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View
+                    style={[
+                      styles.bubble,
+                      isMe ? styles.myBubble : styles.otherBubble,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.bubbleText,
+                        isMe && { color: "#fff" },
+                      ]}
+                    >
+                      {c.text}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.commentText}>{c.text}</Text>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
+
+
+
+
+
 
           <TextInput
             value={text}
@@ -615,5 +703,100 @@ count: {
     right: 14,
   },
 
+  simpleCommentRow: {
+    width: "100%",
+    marginVertical: 6,
+    paddingHorizontal: 10,
+  },
 
+  myCommentAlign: {
+    alignItems: "flex-end", // 👈 slight right alignment
+  },
+
+  simpleBubble: {
+    maxWidth: "75%",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+
+  myBubble: {
+    backgroundColor: "#6a11cb", // your theme color
+    borderTopRightRadius: 4,
+  },
+
+  otherBubble: {
+    backgroundColor: "#f2f2f2",
+    borderTopLeftRadius: 4,
+  },
+
+  simpleText: {
+    fontSize: 14,
+    color: "#333",
+  },
+
+  commentRow: {
+    width: "100%",
+    flexDirection: "row",          // 👈 critical
+    alignItems: "flex-end",
+    marginTop: 8,
+    paddingHorizontal: 12,
+  },
+
+  attachedRow: {
+    marginTop: 2,
+  },
+
+  myAlign: {
+    justifyContent: "flex-end",
+  },
+
+  initialBadge: {
+    width: 28,                     // 👈 fixed width
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#e6e6e6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,                // 👈 space before bubble
+  },
+
+
+  myInitialBadge: {
+    backgroundColor: "#6a11cb",
+    marginRight: 0,
+    marginLeft: 8,                 // 👈 space on right side
+  },
+
+  otherInitialBadge: {
+    backgroundColor: "#6a11cb",   // 👈 purple ONLY for others
+  },
+
+  initialText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  bubble: {
+    maxWidth: "75%",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+
+  myBubble: {
+    backgroundColor: "#6a11cb",
+    borderTopRightRadius: 4,
+  },
+
+  otherBubble: {
+    backgroundColor: "#6a11cb",
+    borderTopLeftRadius: 4,
+  },
+
+  bubbleText: {
+    fontSize: 14,
+    color: "#FFF",
+  },
 });
